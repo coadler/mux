@@ -24,7 +24,7 @@ import {
   type SendMessageOptions,
   type WorkspaceChatMessage,
 } from "@/common/types/ipc";
-import { getDefaultModel } from "@/common/utils/model/defaults";
+import { defaultModel } from "@/common/utils/ai/models";
 import { ensureProvidersConfig } from "@/common/utils/providers/ensureProvidersConfig";
 import { modeToToolPolicy, PLAN_MODE_INSTRUCTION } from "@/common/utils/ui/modeUtils";
 import {
@@ -183,8 +183,7 @@ async function main(): Promise<void> {
     throw new Error("Message must be provided via --message or stdin");
   }
 
-  const model =
-    values.model && values.model.trim().length > 0 ? values.model.trim() : getDefaultModel();
+  const model = values.model && values.model.trim().length > 0 ? values.model.trim() : defaultModel;
   const timeoutMs = parseTimeout(values.timeout);
   const thinkingLevel = parseThinkingLevel(values["thinking-level"]);
   const initialMode = parseMode(values.mode);
