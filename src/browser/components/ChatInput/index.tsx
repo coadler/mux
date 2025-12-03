@@ -148,6 +148,25 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
   }, []);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelSelectorRef = useRef<ModelSelectorRef>(null);
+
+  // Draft state combines text input and image attachments
+  // Use these helpers to avoid accidentally losing images when modifying text
+  interface DraftState {
+    text: string;
+    images: ImageAttachment[];
+  }
+  const getDraft = useCallback(
+    (): DraftState => ({ text: input, images: imageAttachments }),
+    [input, imageAttachments]
+  );
+  const setDraft = useCallback(
+    (draft: DraftState) => {
+      setInput(draft.text);
+      setImageAttachments(draft.images);
+    },
+    [setInput]
+  );
+  const preEditDraftRef = useRef<DraftState>({ text: "", images: [] });
   const [mode, setMode] = useMode();
   const { recentModels, addModel, defaultModel, setDefaultModel } = useModelLRU();
   const commandListId = useId();
@@ -346,10 +365,11 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
     };
   }, [focusMessageInput]);
 
-  // When entering editing mode, populate input with message content
+  // When entering editing mode, save current draft and populate with message content
   useEffect(() => {
     if (editingMessage) {
-      setInput(editingMessage.content);
+      preEditDraftRef.current = getDraft();
+      setDraft({ text: editingMessage.content, images: [] });
       // Auto-resize textarea and focus
       setTimeout(() => {
         if (inputRef.current) {
@@ -360,7 +380,8 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
         }
       }, 0);
     }
-  }, [editingMessage, setInput]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only run when editingMessage changes
+  }, [editingMessage]);
 
   // Watch input for slash commands
   useEffect(() => {
@@ -826,6 +847,15 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
     }
   };
 
+  // Handler for Escape in vim normal mode - cancels edit if editing
+  const handleEscapeInNormalMode = () => {
+    if (variant === "workspace" && editingMessage && props.onCancelEdit) {
+      setDraft(preEditDraftRef.current);
+      props.onCancelEdit();
+      inputRef.current?.blur();
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Handle cancel for creation variant
     if (variant === "creation" && matchesKeybind(e, KEYBINDS.CANCEL) && props.onCancel) {
@@ -870,10 +900,13 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
       return;
     }
 
-    // Handle cancel edit (Ctrl+Q) - workspace only
+    // Handle cancel edit (Escape) - workspace only
+    // In vim mode, escape first goes to normal mode; escapeInNormalMode callback handles cancel
+    // In non-vim mode, escape directly cancels edit
     if (matchesKeybind(e, KEYBINDS.CANCEL_EDIT)) {
-      if (variant === "workspace" && editingMessage && props.onCancelEdit) {
+      if (variant === "workspace" && editingMessage && props.onCancelEdit && !vimEnabled) {
         e.preventDefault();
+        setDraft(preEditDraftRef.current);
         props.onCancelEdit();
         const isFocused = document.activeElement === inputRef.current;
         if (isFocused) {
@@ -897,7 +930,6 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
     }
 
     // Note: ESC handled by VimTextArea (for mode transitions) and CommandSuggestions (for dismissal)
-    // Edit canceling is Ctrl+Q, stream interruption is Ctrl+C (vim) or Esc (normal)
 
     // Don't handle keys if command suggestions are visible
     if (
@@ -924,7 +956,10 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
 
     // Workspace variant placeholders
     if (editingMessage) {
-      return `Edit your message... (${formatKeybind(KEYBINDS.CANCEL_EDIT)} to cancel, ${formatKeybind(KEYBINDS.SEND_MESSAGE)} to send)`;
+      const cancelHint = vimEnabled
+        ? `${formatKeybind(KEYBINDS.CANCEL_EDIT)}×2 to cancel`
+        : `${formatKeybind(KEYBINDS.CANCEL_EDIT)} to cancel`;
+      return `Edit your message... (${cancelHint}, ${formatKeybind(KEYBINDS.SEND_MESSAGE)} to send)`;
     }
     if (isCompacting) {
       const interruptKeybind = vimEnabled
@@ -1040,6 +1075,7 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
                   onPaste={handlePaste}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
+                  onEscapeInNormalMode={handleEscapeInNormalMode}
                   suppressKeys={showCommandSuggestions ? COMMAND_SUGGESTION_KEYS : undefined}
                   placeholder={placeholder}
                   disabled={!editingMessage && (disabled || isSending)}
@@ -1074,7 +1110,8 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
             {/* Editing indicator - workspace only */}
             {variant === "workspace" && editingMessage && (
               <div className="text-edit-mode text-[11px] font-medium">
-                Editing message ({formatKeybind(KEYBINDS.CANCEL_EDIT)} to cancel)
+                Editing message ({formatKeybind(KEYBINDS.CANCEL_EDIT)}
+                {vimEnabled ? "×2" : ""} to cancel)
               </div>
             )}
 
