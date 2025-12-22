@@ -15,6 +15,25 @@ export type FeatureFlagOverride = "default" | "on" | "off";
 
 export interface ProjectsConfig {
   projects: Map<string, ProjectConfig>;
+  /**
+   * Bind host/interface for the desktop HTTP/WS API server.
+   *
+   * When unset, mux binds to 127.0.0.1 (localhost only).
+   * When set to 0.0.0.0 or ::, mux can be reachable from other devices on your LAN/VPN.
+   */
+  apiServerBindHost?: string;
+  /**
+   * Port for the desktop HTTP/WS API server.
+   *
+   * When unset, mux binds to port 0 (random available port).
+   */
+  apiServerPort?: number;
+  /**
+   * When true, the desktop HTTP server also serves the mux web UI at /.
+   *
+   * This enables other devices (LAN/VPN) to open mux in a browser.
+   */
+  apiServerServeWebUi?: boolean;
   /** SSH hostname/alias for this machine (used for editor deep links in browser mode) */
   serverSshHost?: string;
   /** IDs of splash screens that have been viewed */

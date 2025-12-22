@@ -34,6 +34,30 @@ export interface ProviderConfig {
   [key: string]: unknown;
 }
 
+function parseOptionalNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function parseOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function parseOptionalPort(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
+    return undefined;
+  }
+
+  if (value < 0 || value > 65535) {
+    return undefined;
+  }
+
+  return value;
+}
 export type ProvidersConfig = Record<string, ProviderConfig>;
 
 /**
@@ -65,6 +89,9 @@ export class Config {
         const data = fs.readFileSync(this.configFile, "utf-8");
         const parsed = JSON.parse(data) as {
           projects?: unknown;
+          apiServerBindHost?: unknown;
+          apiServerPort?: unknown;
+          apiServerServeWebUi?: unknown;
           serverSshHost?: string;
           viewedSplashScreens?: string[];
           featureFlagOverrides?: Record<string, "default" | "on" | "off">;
@@ -83,6 +110,11 @@ export class Config {
           const projectsMap = new Map<string, ProjectConfig>(normalizedPairs);
           return {
             projects: projectsMap,
+            apiServerBindHost: parseOptionalNonEmptyString(parsed.apiServerBindHost),
+            apiServerServeWebUi: parseOptionalBoolean(parsed.apiServerServeWebUi)
+              ? true
+              : undefined,
+            apiServerPort: parseOptionalPort(parsed.apiServerPort),
             serverSshHost: parsed.serverSshHost,
             viewedSplashScreens: parsed.viewedSplashScreens,
             taskSettings: normalizeTaskSettings(parsed.taskSettings),
@@ -111,6 +143,9 @@ export class Config {
 
       const data: {
         projects: Array<[string, ProjectConfig]>;
+        apiServerBindHost?: string;
+        apiServerPort?: number;
+        apiServerServeWebUi?: boolean;
         serverSshHost?: string;
         viewedSplashScreens?: string[];
         featureFlagOverrides?: ProjectsConfig["featureFlagOverrides"];
@@ -120,6 +155,21 @@ export class Config {
         projects: Array.from(config.projects.entries()),
         taskSettings: config.taskSettings ?? DEFAULT_TASK_SETTINGS,
       };
+      const apiServerBindHost = parseOptionalNonEmptyString(config.apiServerBindHost);
+      if (apiServerBindHost) {
+        data.apiServerBindHost = apiServerBindHost;
+      }
+
+      const apiServerServeWebUi = parseOptionalBoolean(config.apiServerServeWebUi);
+      if (apiServerServeWebUi) {
+        data.apiServerServeWebUi = true;
+      }
+
+      const apiServerPort = parseOptionalPort(config.apiServerPort);
+      if (apiServerPort !== undefined) {
+        data.apiServerPort = apiServerPort;
+      }
+
       if (config.serverSshHost) {
         data.serverSshHost = config.serverSshHost;
       }
