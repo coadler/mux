@@ -5,7 +5,6 @@
 import React, { useState } from "react";
 import { usePersistedState } from "@/browser/hooks/usePersistedState";
 import type { ReviewFilters, ReviewStats } from "@/common/types/review";
-import type { LastRefreshInfo } from "@/browser/utils/RefreshController";
 import { RefreshButton } from "./RefreshButton";
 import { UntrackedStatus } from "./UntrackedStatus";
 
@@ -18,8 +17,6 @@ interface ReviewControlsProps {
   workspaceId: string;
   workspacePath: string;
   refreshTrigger?: number;
-  /** Debug info about last refresh */
-  lastRefreshInfo?: LastRefreshInfo | null;
 }
 
 export const ReviewControls: React.FC<ReviewControlsProps> = ({
@@ -31,7 +28,6 @@ export const ReviewControls: React.FC<ReviewControlsProps> = ({
   workspaceId,
   workspacePath,
   refreshTrigger,
-  lastRefreshInfo,
 }) => {
   // Local state for input value - only commit on blur/Enter
   const [inputValue, setInputValue] = useState(filters.diffBase);
@@ -87,13 +83,7 @@ export const ReviewControls: React.FC<ReviewControlsProps> = ({
 
   return (
     <div className="bg-separator border-border-light flex flex-wrap items-center gap-3 border-b px-3 py-2 text-[11px]">
-      {onRefresh && (
-        <RefreshButton
-          onClick={onRefresh}
-          isLoading={isLoading}
-          lastRefreshInfo={lastRefreshInfo}
-        />
-      )}
+      {onRefresh && <RefreshButton onClick={onRefresh} isLoading={isLoading} />}
       <label className="text-muted font-medium whitespace-nowrap">Base:</label>
       <input
         type="text"

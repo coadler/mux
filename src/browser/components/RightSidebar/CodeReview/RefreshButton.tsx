@@ -5,30 +5,14 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/browser/components/ui/tooltip";
 import { formatKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
-import { formatRelativeTimeCompact } from "@/browser/utils/ui/dateTime";
 import { cn } from "@/common/lib/utils";
-import type { LastRefreshInfo, RefreshTrigger } from "@/browser/utils/RefreshController";
 
 interface RefreshButtonProps {
   onClick: () => void;
   isLoading?: boolean;
-  /** Debug info about last refresh (timestamp and trigger) */
-  lastRefreshInfo?: LastRefreshInfo | null;
 }
 
-/** Human-readable trigger labels */
-const TRIGGER_LABELS: Record<RefreshTrigger, string> = {
-  manual: "manual click",
-  scheduled: "tool completion",
-  priority: "tool completion (priority)",
-  focus: "window focus",
-  visibility: "tab visible",
-  unpaused: "interaction ended",
-  "in-flight-followup": "queued followup",
-};
-
-export const RefreshButton: React.FC<RefreshButtonProps> = (props) => {
-  const { onClick, isLoading = false, lastRefreshInfo } = props;
+export const RefreshButton: React.FC<RefreshButtonProps> = ({ onClick, isLoading = false }) => {
   // Track animation state for graceful stopping
   const [animationState, setAnimationState] = useState<"idle" | "spinning" | "stopping">("idle");
   const spinOnceTimeoutRef = useRef<number | null>(null);
@@ -92,19 +76,9 @@ export const RefreshButton: React.FC<RefreshButtonProps> = (props) => {
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" align="start">
-        {animationState !== "idle" ? (
-          "Refreshing..."
-        ) : (
-          <span>
-            Refresh diff ({formatKeybind(KEYBINDS.REFRESH_REVIEW)})
-            {lastRefreshInfo && (
-              <span className="text-muted block text-[10px]">
-                Last: {formatRelativeTimeCompact(lastRefreshInfo.timestamp)} via{" "}
-                {TRIGGER_LABELS[lastRefreshInfo.trigger] ?? lastRefreshInfo.trigger}
-              </span>
-            )}
-          </span>
-        )}
+        {animationState !== "idle"
+          ? "Refreshing..."
+          : `Refresh diff (${formatKeybind(KEYBINDS.REFRESH_REVIEW)})`}
       </TooltipContent>
     </Tooltip>
   );

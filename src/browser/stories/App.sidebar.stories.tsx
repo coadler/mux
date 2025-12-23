@@ -355,7 +355,7 @@ export const GitStatusVariations: AppStory = {
     />
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    // Wait for git status to render (fetched async via GitStatusStore)
+    // Wait for git status to render (fetched async via GitStatusStore polling)
     await waitFor(
       () => {
         const row = canvasElement.querySelector<HTMLElement>('[data-workspace-id="ws-diverged"]');
