@@ -33,4 +33,7 @@ contextBridge.exposeInMainWorld("api", {
   },
   isE2E: process.env.MUX_E2E === "1",
   enableTelemetryInDev: process.env.MUX_ENABLE_TELEMETRY_IN_DEV === "1",
+  // NOTE: This is intentionally async so the preload script does not rely on Node builtins
+  // like `child_process` (which can break in hardened/sandboxed environments).
+  getIsRosetta: () => ipcRenderer.invoke("mux:get-is-rosetta"),
 });
