@@ -1904,6 +1904,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
               disabled={isSendInFlight}
               projectName={props.projectName}
               nameState={creationState.nameState}
+              isNonGitRepo={creationState.branchesLoaded && creationState.branches.length === 0}
             />
           )}
 

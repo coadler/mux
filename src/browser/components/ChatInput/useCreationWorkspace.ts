@@ -107,6 +107,8 @@ interface UseCreationWorkspaceReturn {
   nameState: WorkspaceNameState;
   /** The confirmed identity being used for creation (null until generation resolves) */
   creatingWithIdentity: WorkspaceIdentity | null;
+  /** Reload branches (e.g., after git init) */
+  reloadBranches: () => Promise<void>;
 }
 
 /**
@@ -157,16 +159,28 @@ export function useCreationWorkspace({
   // Destructure name state functions for use in callbacks
   const { waitForGeneration } = workspaceNameState;
 
-  // Load branches on mount
-  useEffect(() => {
-    // This can be created with an empty project path when the user is
-    // creating a new workspace.
-    if (!projectPath.length || !api) {
-      return;
+  // Load branches - used on mount and after git init
+  // Returns a cleanup function to track mounted state
+  const loadBranches = useCallback(async () => {
+    if (!projectPath.length || !api) return;
+    setBranchesLoaded(false);
+    try {
+      const result = await api.projects.listBranches({ projectPath });
+      setBranches(result.branches);
+      setRecommendedTrunk(result.recommendedTrunk);
+    } catch (err) {
+      console.error("Failed to load branches:", err);
+    } finally {
+      setBranchesLoaded(true);
     }
+  }, [projectPath, api]);
+
+  // Load branches on mount with mounted guard
+  useEffect(() => {
+    if (!projectPath.length || !api) return;
     let mounted = true;
     setBranchesLoaded(false);
-    const loadBranches = async () => {
+    const doLoad = async () => {
       try {
         const result = await api.projects.listBranches({ projectPath });
         if (!mounted) return;
@@ -180,7 +194,7 @@ export function useCreationWorkspace({
         }
       }
     };
-    void loadBranches();
+    void doLoad();
     return () => {
       mounted = false;
     };
@@ -336,5 +350,7 @@ export function useCreationWorkspace({
     nameState: workspaceNameState,
     // The confirmed identity being used for creation (null until generation resolves)
     creatingWithIdentity,
+    // Reload branches (e.g., after git init)
+    reloadBranches: loadBranches,
   };
 }

@@ -161,11 +161,69 @@ export class ProjectService {
       }
 
       const branches = await listLocalBranches(normalizedPath);
+
+      // Empty branches means the repo is unborn (git init but no commits yet)
+      // Return empty branches - frontend will show the git init banner since no branches exist
+      // After user creates a commit, branches will populate
+      if (branches.length === 0) {
+        return { branches: [], recommendedTrunk: null };
+      }
+
       const recommendedTrunk = await detectDefaultTrunkBranch(normalizedPath, branches);
       return { branches, recommendedTrunk };
     } catch (error) {
       log.error("Failed to list branches:", error);
       throw error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  /**
+   * Initialize a git repository in the project directory.
+   * Runs `git init` and creates an initial commit so branches exist.
+   * Also handles "unborn" repos (git init already run but no commits yet).
+   */
+  async gitInit(projectPath: string): Promise<Result<void>> {
+    if (typeof projectPath !== "string" || projectPath.trim().length === 0) {
+      return Err("Project path is required");
+    }
+    try {
+      const validation = await validateProjectPath(projectPath);
+      if (!validation.valid) {
+        return Err(validation.error ?? "Invalid project path");
+      }
+      const normalizedPath = validation.expandedPath!;
+
+      const isGitRepo = await isGitRepository(normalizedPath);
+
+      if (isGitRepo) {
+        // Check if repo is "unborn" (git init but no commits yet)
+        const branches = await listLocalBranches(normalizedPath);
+        if (branches.length > 0) {
+          return Err("Directory is already a git repository with commits");
+        }
+        // Repo exists but is unborn - just create the initial commit
+      } else {
+        // Initialize git repository with main as default branch
+        using initProc = execAsync(`git -C "${normalizedPath}" init -b main`);
+        await initProc.result;
+      }
+
+      // Create an initial empty commit so the branch exists and worktree/SSH can work
+      // Without a commit, the repo is "unborn" and has no branches
+      // Use -c flags to set identity only for this commit (don't persist to repo config)
+      using commitProc = execAsync(
+        `git -C "${normalizedPath}" -c user.name="mux" -c user.email="mux@localhost" commit --allow-empty -m "Initial commit"`
+      );
+      await commitProc.result;
+
+      // Invalidate file completions cache since the repo state changed
+      this.fileCompletionsCache.delete(normalizedPath);
+
+      return Ok(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error("Failed to initialize git repository:", error);
+      return Err(`Failed to initialize git repository: ${message}`);
     }
   }
 

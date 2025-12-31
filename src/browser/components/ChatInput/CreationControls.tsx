@@ -25,6 +25,8 @@ interface CreationControlsProps {
   projectName: string;
   /** Workspace name/title generation state and actions */
   nameState: WorkspaceNameState;
+  /** Whether this is a non-git repository (for disabling worktree/SSH) */
+  isNonGitRepo: boolean;
 }
 
 /** Runtime type button group with icons and colors */
@@ -147,11 +149,7 @@ function RuntimeButtonGroup(props: RuntimeButtonGroupProps) {
  * Displays project name as header, workspace name with magic wand, and runtime/branch selectors.
  */
 export function CreationControls(props: CreationControlsProps) {
-  const { nameState } = props;
-
-  // Non-git directories (empty branches after loading completes) can only use local runtime
-  // Don't check until branches have loaded to avoid prematurely switching runtime
-  const isNonGitRepo = props.branchesLoaded && props.branches.length === 0;
+  const { nameState, isNonGitRepo } = props;
 
   // Local runtime doesn't need a trunk branch selector (uses project dir as-is)
   const showTrunkBranchSelector =
@@ -159,7 +157,7 @@ export function CreationControls(props: CreationControlsProps) {
 
   const { runtimeMode, onRuntimeModeChange } = props;
 
-  // Force local runtime for non-git directories (only after branches loaded)
+  // Force local runtime for non-git directories
   useEffect(() => {
     if (isNonGitRepo && runtimeMode !== RUNTIME_MODE.LOCAL) {
       onRuntimeModeChange(RUNTIME_MODE.LOCAL);
