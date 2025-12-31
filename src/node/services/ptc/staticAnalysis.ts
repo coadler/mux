@@ -128,7 +128,7 @@ async function validateSyntax(code: string): Promise<AnalysisError | null> {
   // Wrap in function to allow return statements (matches runtime behavior)
   const wrappedCode = `(function() { ${code} })`;
 
-  // Use evalCode with compile-only flag to parse without executing
+  // Use evalCode with compile-only flag to parse without executing.
   const result = ctx.evalCode(wrappedCode, "analysis.js", {
     compileOnly: true,
   });
@@ -138,8 +138,16 @@ async function validateSyntax(code: string): Promise<AnalysisError | null> {
     result.error.dispose();
 
     // QuickJS error object has: { name, message, stack, fileName, lineNumber }
-    const message =
+    let message =
       typeof errorObj.message === "string" ? errorObj.message : JSON.stringify(errorObj);
+
+    // Enhance obtuse "expecting ';'" error when await expression is detected.
+    // In non-async context, `await foo()` parses as identifier `await` + stray `foo()`,
+    // giving unhelpful "expecting ';'". Detect this pattern and give a clearer message.
+    if (message === "expecting ';'" && /\bawait\s+\w/.test(code)) {
+      message =
+        "`await` is not supported - mux.* functions return results directly (no await needed)";
+    }
     const rawLine = typeof errorObj.lineNumber === "number" ? errorObj.lineNumber : undefined;
 
     // Only report line if it's within agent code bounds.

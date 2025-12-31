@@ -48,6 +48,16 @@ describe("staticAnalysis", () => {
       expect(result.errors[0].type).toBe("syntax");
     });
 
+    test("await expression gives clear error message", async () => {
+      const result = await analyzeCode(`const x = await mux.bash({ script: "ls" })`);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].type).toBe("syntax");
+      // Should give clear message about await, not obtuse "expecting ';'"
+      expect(result.errors[0].message).toContain("await");
+      expect(result.errors[0].message).toContain("not supported");
+    });
+
     test("allows return statements (wrapped in function)", async () => {
       const result = await analyzeCode(`
         const x = mux.fileRead("test.txt");
