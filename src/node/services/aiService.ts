@@ -1434,14 +1434,10 @@ export class AIService extends EventEmitter {
         metadata,
         runtime,
         workspacePath,
-        effectiveMode,
         effectiveAdditionalInstructions,
         modelString,
         mcpServers,
-        {
-          agentId: effectiveAgentId,
-          agentSystemPrompt,
-        }
+        { agentSystemPrompt }
       );
 
       // Count system message tokens for cost tracking
@@ -1481,12 +1477,13 @@ export class AIService extends EventEmitter {
 
       const runtimeTempDir = await this.streamManager.createTempDirForStream(streamToken, runtime);
 
-      // Extract tool-specific instructions from AGENTS.md files
+      // Extract tool-specific instructions from AGENTS.md files and agent definition
       const toolInstructions = await readToolInstructions(
         metadata,
         runtime,
         workspacePath,
-        modelString
+        modelString,
+        agentSystemPrompt
       );
 
       // Get model-specific tools with workspace path (correct for local or remote)
