@@ -14,6 +14,8 @@ import { GitInitBanner } from "./GitInitBanner";
 interface ProjectPageProps {
   projectPath: string;
   projectName: string;
+  /** Section ID to pre-select when creating (from sidebar section "+" button) */
+  pendingSectionId?: string | null;
   onProviderConfig: (provider: string, keyPath: string[], value: string) => Promise<void>;
   onWorkspaceCreated: (metadata: FrontendWorkspaceMetadata) => void;
 }
@@ -35,6 +37,7 @@ function archivedListsEqual(
 export const ProjectPage: React.FC<ProjectPageProps> = ({
   projectPath,
   projectName,
+  pendingSectionId,
   onProviderConfig,
   onWorkspaceCreated,
 }) => {
@@ -164,11 +167,12 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
                 {isNonGitRepo && (
                   <GitInitBanner projectPath={projectPath} onSuccess={loadBranches} />
                 )}
-                {/* ChatInput for workspace creation */}
+                {/* ChatInput for workspace creation - includes section selector */}
                 <ChatInput
                   variant="creation"
                   projectPath={projectPath}
                   projectName={projectName}
+                  pendingSectionId={pendingSectionId}
                   onProviderConfig={onProviderConfig}
                   onReady={handleChatReady}
                   onWorkspaceCreated={onWorkspaceCreated}

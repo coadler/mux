@@ -41,6 +41,11 @@ export function installDom(): () => void {
   (globalThis as unknown as { Node: unknown }).Node = domWindow.Node;
   // Image is used by react-dnd-html5-backend for drag preview
   (globalThis as unknown as { Image: unknown }).Image = domWindow.Image ?? class MockImage {};
+  // DataTransfer is used by drag-drop tests
+  if (!(globalThis as unknown as { DataTransfer?: unknown }).DataTransfer) {
+    (globalThis as unknown as { DataTransfer: unknown }).DataTransfer =
+      domWindow.DataTransfer ?? class MockDataTransfer {};
+  }
 
   // happy-dom doesn't always define these on globalThis in node env.
   if (!globalThis.requestAnimationFrame) {
@@ -81,6 +86,15 @@ export function installDom(): () => void {
 
     (globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
       IntersectionObserver;
+  }
+
+  // React DOM's getCurrentEventPriority reads window.event to determine update priority.
+  // In happy-dom, this may be undefined, causing errors. Polyfill with undefined-safe getter.
+  if (!("event" in domWindow)) {
+    Object.defineProperty(domWindow, "event", {
+      get: () => undefined,
+      configurable: true,
+    });
   }
 
   // matchMedia is used by some components and by Radix.

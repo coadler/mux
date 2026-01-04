@@ -527,7 +527,8 @@ export class WorkspaceService extends EventEmitter {
     branchName: string,
     trunkBranch: string | undefined,
     title?: string,
-    runtimeConfig?: RuntimeConfig
+    runtimeConfig?: RuntimeConfig,
+    sectionId?: string
   ): Promise<Result<{ metadata: FrontendWorkspaceMetadata }>> {
     // Validate workspace name
     const validation = validateWorkspaceName(branchName);
@@ -633,6 +634,7 @@ export class WorkspaceService extends EventEmitter {
           title,
           createdAt: metadata.createdAt,
           runtimeConfig: finalRuntimeConfig,
+          sectionId,
         });
         return config;
       });
@@ -843,6 +845,17 @@ export class WorkspaceService extends EventEmitter {
   async getInfo(workspaceId: string): Promise<FrontendWorkspaceMetadata | null> {
     const allMetadata = await this.config.getAllWorkspaceMetadata();
     return allMetadata.find((m) => m.id === workspaceId) ?? null;
+  }
+
+  /**
+   * Refresh workspace metadata from config and emit to subscribers.
+   * Useful when external changes (like section assignment) modify workspace config.
+   */
+  async refreshAndEmitMetadata(workspaceId: string): Promise<void> {
+    const metadata = await this.getInfo(workspaceId);
+    if (metadata) {
+      this.emit("metadata", { workspaceId, metadata });
+    }
   }
 
   async rename(workspaceId: string, newName: string): Promise<Result<{ newWorkspaceId: string }>> {

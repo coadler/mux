@@ -1,5 +1,8 @@
 import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
-import type { ProjectConfig } from "@/common/types/project";
+import type { ProjectConfig, SectionConfig } from "@/common/types/project";
+
+// Re-export shared section sorting utility
+export { sortSectionsByLinkedList } from "@/common/utils/sections";
 
 function flattenWorkspaceTree(
   workspaces: FrontendWorkspaceMetadata[]
@@ -357,4 +360,92 @@ export function getVisibleWorkspaces(
   }
 
   return visible;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section-based workspace grouping
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Result of partitioning workspaces by section.
+ * - unsectioned: workspaces not assigned to any section
+ * - bySectionId: map of section ID to workspaces in that section
+ */
+export interface SectionPartitionResult {
+  unsectioned: FrontendWorkspaceMetadata[];
+  bySectionId: Map<string, FrontendWorkspaceMetadata[]>;
+}
+
+/**
+ * Partition workspaces by their sectionId.
+ * Preserves input order within each partition.
+ *
+ * @param workspaces - All workspaces for the project (in display order)
+ * @param sections - Section configs for the project (used to validate section IDs)
+ * @returns Partitioned workspaces
+ */
+export function partitionWorkspacesBySection(
+  workspaces: FrontendWorkspaceMetadata[],
+  sections: SectionConfig[]
+): SectionPartitionResult {
+  const sectionIds = new Set(sections.map((s) => s.id));
+  const unsectioned: FrontendWorkspaceMetadata[] = [];
+  const bySectionId = new Map<string, FrontendWorkspaceMetadata[]>();
+
+  // Initialize all sections with empty arrays to ensure consistent ordering
+  for (const section of sections) {
+    bySectionId.set(section.id, []);
+  }
+
+  // Build workspace lookup for parent resolution
+  const byId = new Map<string, FrontendWorkspaceMetadata>();
+  for (const workspace of workspaces) {
+    byId.set(workspace.id, workspace);
+  }
+
+  // Resolve effective section for a workspace (inherit from parent if unset)
+  const resolveSection = (workspace: FrontendWorkspaceMetadata): string | undefined => {
+    if (workspace.sectionId && sectionIds.has(workspace.sectionId)) {
+      return workspace.sectionId;
+    }
+    // Inherit from parent if child has no section
+    if (workspace.parentWorkspaceId) {
+      const parent = byId.get(workspace.parentWorkspaceId);
+      if (parent) {
+        return resolveSection(parent);
+      }
+    }
+    return undefined;
+  };
+
+  for (const workspace of workspaces) {
+    const effectiveSectionId = resolveSection(workspace);
+    if (effectiveSectionId) {
+      const list = bySectionId.get(effectiveSectionId)!;
+      list.push(workspace);
+    } else {
+      unsectioned.push(workspace);
+    }
+  }
+
+  return { unsectioned, bySectionId };
+}
+
+/**
+ * Build the storage key for a section's expanded state.
+ */
+export function getSectionExpandedKey(projectPath: string, sectionId: string): string {
+  return `section:${projectPath}:${sectionId}`;
+}
+
+/**
+ * Build the storage key for a section's age tier expanded state.
+ * This is separate from project-level tiers to allow per-section age collapse.
+ */
+export function getSectionTierKey(
+  projectPath: string,
+  sectionId: string,
+  tierIndex: number
+): string {
+  return `section:${projectPath}:${sectionId}:tier:${tierIndex}`;
 }
