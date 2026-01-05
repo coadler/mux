@@ -264,9 +264,9 @@ export function createFileReadTool(toolCallId: string, filePath: string, content
   return {
     type: "dynamic-tool",
     toolCallId,
-    toolName: "read_file",
+    toolName: "file_read",
     state: "output-available",
-    input: { target_file: filePath },
+    input: { filePath },
     output: { success: true, content },
   };
 }
@@ -303,6 +303,24 @@ export function createBashTool(
       display_name: displayName,
     },
     output: { success: exitCode === 0, output, exitCode, wall_duration_ms: durationMs },
+  };
+}
+
+export function createWebSearchTool(
+  toolCallId: string,
+  query: string,
+  resultCount = 5,
+  encrypted = true
+): MuxPart {
+  return {
+    type: "dynamic-tool",
+    toolCallId,
+    toolName: "web_search",
+    state: "output-available",
+    input: { query },
+    output: encrypted
+      ? Array.from({ length: resultCount }, () => ({ encryptedContent: "base64data..." }))
+      : [{ title: "Example Result", url: "https://example.com", snippet: "A sample snippet" }],
   };
 }
 
