@@ -16,6 +16,31 @@ import {
   extractEditedFileDiffs,
   type FileEditDiff,
 } from "@/common/utils/messages/extractEditedFiles";
+
+/**
+ * Check if a string is just a raw JSON object, which suggests the model
+ * tried to output a tool call as text (happens when tools are disabled).
+ *
+ * A valid compaction summary should be prose text describing the conversation,
+ * not a JSON blob. This general check catches any tool that might leak through.
+ */
+function looksLikeRawJsonObject(text: string): boolean {
+  const trimmed = text.trim();
+
+  // Must be a JSON object (not array, not primitive)
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return false;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    // Must parse as a non-null, non-array object
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
+}
+
 import { computeRecencyFromMessages } from "@/common/utils/recency";
 
 interface CompactionHandlerOptions {
@@ -115,6 +140,21 @@ export class CompactionHandler {
       .filter((part): part is { type: "text"; text: string } => part.type === "text")
       .map((part) => part.text)
       .join("");
+
+    // Self-healing: Reject compaction if summary is just a raw JSON object.
+    // This happens when tools are disabled but the model still tries to output a tool call.
+    // A valid summary should be prose text, not a JSON blob.
+    if (looksLikeRawJsonObject(summary)) {
+      log.warn(
+        "Compaction summary is a raw JSON object - aborting compaction to prevent corrupted history",
+        {
+          workspaceId: this.workspaceId,
+          summaryPreview: summary.slice(0, 200),
+        }
+      );
+      // Don't mark as processed so user can retry
+      return false;
+    }
 
     // Check if this was an idle-compaction (auto-triggered due to inactivity)
     const muxMeta = lastUserMsg.metadata?.muxMetadata;

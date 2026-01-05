@@ -728,4 +728,106 @@ describe("CompactionHandler", () => {
       expect(summaryMsg.metadata?.compacted).toBe("user");
     });
   });
+
+  describe("Raw JSON Object Validation", () => {
+    it("should reject compaction when summary is a raw JSON object", async () => {
+      const compactionRequestMsg = createMuxMessage("compact-req-1", "user", "/compact", {
+        historySequence: 0,
+        timestamp: Date.now() - 1000,
+        muxMetadata: { type: "compaction-request", rawCommand: "/compact", parsed: {} },
+      });
+      mockHistoryService.mockGetHistory(Ok([compactionRequestMsg]));
+
+      // Any JSON object should be rejected - this catches all tool call leaks
+      const jsonObject = JSON.stringify({
+        script: "cd tpred && sed -n '405,520p' train/trainer.py",
+        timeout_secs: 10,
+        run_in_background: false,
+        display_name: "Inspect trainer",
+      });
+      const event = createStreamEndEvent(jsonObject);
+
+      const result = await handler.handleCompletion(event);
+
+      // Should return false and NOT perform compaction
+      expect(result).toBe(false);
+      expect(mockHistoryService.clearHistory).not.toHaveBeenCalled();
+      expect(mockHistoryService.appendToHistory).not.toHaveBeenCalled();
+    });
+
+    it("should reject any JSON object regardless of structure", async () => {
+      const compactionRequestMsg = createMuxMessage("compact-req-1", "user", "/compact", {
+        historySequence: 0,
+        timestamp: Date.now() - 1000,
+        muxMetadata: { type: "compaction-request", rawCommand: "/compact", parsed: {} },
+      });
+      mockHistoryService.mockGetHistory(Ok([compactionRequestMsg]));
+
+      // Even arbitrary JSON objects should be rejected
+      const arbitraryJson = JSON.stringify({
+        foo: "bar",
+        nested: { a: 1, b: 2 },
+      });
+      const event = createStreamEndEvent(arbitraryJson);
+
+      const result = await handler.handleCompletion(event);
+      expect(result).toBe(false);
+    });
+
+    it("should accept valid compaction summary text", async () => {
+      const compactionRequestMsg = createMuxMessage("compact-req-1", "user", "/compact", {
+        historySequence: 0,
+        timestamp: Date.now() - 1000,
+        muxMetadata: { type: "compaction-request", rawCommand: "/compact", parsed: {} },
+      });
+      mockHistoryService.mockGetHistory(Ok([compactionRequestMsg]));
+      mockHistoryService.mockClearHistory(Ok([0]));
+      mockHistoryService.mockAppendToHistory(Ok(undefined));
+
+      // Normal summary text
+      const event = createStreamEndEvent(
+        "The user was working on implementing a new feature. Key decisions included using TypeScript."
+      );
+
+      const result = await handler.handleCompletion(event);
+      expect(result).toBe(true);
+      expect(mockHistoryService.clearHistory).toHaveBeenCalled();
+    });
+
+    it("should accept summary with embedded JSON as part of prose", async () => {
+      const compactionRequestMsg = createMuxMessage("compact-req-1", "user", "/compact", {
+        historySequence: 0,
+        timestamp: Date.now() - 1000,
+        muxMetadata: { type: "compaction-request", rawCommand: "/compact", parsed: {} },
+      });
+      mockHistoryService.mockGetHistory(Ok([compactionRequestMsg]));
+      mockHistoryService.mockClearHistory(Ok([0]));
+      mockHistoryService.mockAppendToHistory(Ok(undefined));
+
+      // Prose that contains JSON snippets is fine - only reject pure JSON objects
+      const event = createStreamEndEvent(
+        'The user configured {"apiKey": "xxx", "endpoint": "http://localhost"} in config.json.'
+      );
+
+      const result = await handler.handleCompletion(event);
+      expect(result).toBe(true);
+    });
+
+    it("should not reject JSON arrays (only objects)", async () => {
+      const compactionRequestMsg = createMuxMessage("compact-req-1", "user", "/compact", {
+        historySequence: 0,
+        timestamp: Date.now() - 1000,
+        muxMetadata: { type: "compaction-request", rawCommand: "/compact", parsed: {} },
+      });
+      mockHistoryService.mockGetHistory(Ok([compactionRequestMsg]));
+      mockHistoryService.mockClearHistory(Ok([0]));
+      mockHistoryService.mockAppendToHistory(Ok(undefined));
+
+      // Arrays are not tool calls, so they should pass (even though unusual)
+      const event = createStreamEndEvent('["item1", "item2"]');
+
+      const result = await handler.handleCompletion(event);
+      expect(result).toBe(true);
+    });
+  });
 });
