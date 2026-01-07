@@ -15,7 +15,7 @@
  * srcBaseDir (base directory for all workspaces):
  *   - Where mux stores ALL workspace directories
  *   - Local: ~/.mux/src (tilde expanded to full path by LocalRuntime)
- *   - SSH: /home/user/workspace (must be absolute path, no tilde allowed)
+ *   - SSH: /home/user/workspace (tilde paths are allowed and are resolved before use)
  *
  * Workspace Path Computation:
  *   {srcBaseDir}/{projectName}/{workspaceName}
@@ -399,6 +399,16 @@ export interface Runtime {
   ): Promise<{ success: true; deletedPath: string } | { success: false; error: string }>;
 
   /**
+   * Ensure the runtime is ready for operations.
+   * - LocalRuntime: Always returns ready (no-op)
+   * - DockerRuntime: Starts container if stopped
+   * - SSHRuntime: Could verify connection (future)
+   *
+   * Called automatically by executeBash handler before first operation.
+   */
+  ensureReady(): Promise<{ ready: boolean; error?: string }>;
+
+  /**
    * Fork an existing workspace to create a new one
    * Creates a new workspace branching from the source workspace's current branch
    * - LocalRuntime: Detects source branch via git, creates new worktree from that branch
@@ -417,7 +427,20 @@ export interface Runtime {
    * Used for background process output, temporary files, etc.
    */
   tempDir(): Promise<string>;
+
+  /**
+   * Get the mux home directory for this runtime.
+   * Used for storing plan files and other mux-specific data.
+   * - LocalRuntime/SSHRuntime: ~/.mux (tilde expanded by runtime)
+   * - DockerRuntime: /var/mux (world-readable, avoids /root permission issues)
+   */
+  getMuxHome(): string;
 }
+
+/**
+ * Result of checking if a runtime type is available for a project.
+ */
+export type RuntimeAvailability = { available: true } | { available: false; reason: string };
 
 /**
  * Error thrown by runtime implementations

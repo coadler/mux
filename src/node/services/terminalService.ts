@@ -10,7 +10,7 @@ import type {
 } from "@/common/types/terminal";
 import { createRuntime } from "@/node/runtime/runtimeFactory";
 import type { RuntimeConfig } from "@/common/types/runtime";
-import { isSSHRuntime } from "@/common/types/runtime";
+import { isSSHRuntime, isDockerRuntime } from "@/common/types/runtime";
 import { log } from "@/node/services/log";
 import { isCommandAvailable, findAvailableCommand } from "@/node/utils/commandDiscovery";
 
@@ -66,9 +66,10 @@ export class TerminalService {
         throw new Error(`Workspace not found: ${params.workspaceId}`);
       }
 
-      // 2. Create runtime
+      // 2. Create runtime (pass workspace info for Docker container name derivation)
       const runtime = createRuntime(
-        workspaceMetadata.runtimeConfig ?? { type: "local", srcBaseDir: this.config.srcDir }
+        workspaceMetadata.runtimeConfig ?? { type: "local", srcBaseDir: this.config.srcDir },
+        { projectPath: workspaceMetadata.projectPath, workspaceName: workspaceMetadata.name }
       );
 
       // 3. Compute workspace path
@@ -234,6 +235,17 @@ export class TerminalService {
           type: "ssh",
           sshConfig: runtimeConfig,
           remotePath: workspace.namedWorkspacePath,
+        });
+      } else if (isDockerRuntime(runtimeConfig)) {
+        // Docker workspace - spawn terminal that docker execs into container
+        const containerName = runtimeConfig.containerName;
+        if (!containerName) {
+          throw new Error("Docker container not initialized");
+        }
+        await this.openNativeTerminal({
+          type: "local",
+          workspacePath: process.cwd(), // cwd doesn't matter, we're running docker exec
+          command: `docker exec -it ${containerName} /bin/sh -c "cd ${workspace.namedWorkspacePath} && exec /bin/sh"`,
         });
       } else {
         // Local workspace - spawn terminal with cwd set

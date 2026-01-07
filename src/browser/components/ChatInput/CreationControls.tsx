@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect } from "react";
-import { RUNTIME_MODE, type RuntimeMode } from "@/common/types/runtime";
+import { RUNTIME_MODE, type RuntimeMode, type ParsedRuntime } from "@/common/types/runtime";
+import type { RuntimeAvailabilityMap } from "./useCreationWorkspace";
 import { Select } from "../Select";
 import { Loader2, Wand2 } from "lucide-react";
 import { cn } from "@/common/lib/utils";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
-import { SSHIcon, WorktreeIcon, LocalIcon } from "../icons/RuntimeIcons";
+import { SSHIcon, WorktreeIcon, LocalIcon, DockerIcon } from "../icons/RuntimeIcons";
 import { DocsLink } from "../DocsLink";
 import type { WorkspaceNameState } from "@/browser/hooks/useWorkspaceName";
 import type { SectionConfig } from "@/common/types/project";
@@ -16,19 +17,19 @@ interface CreationControlsProps {
   branchesLoaded: boolean;
   trunkBranch: string;
   onTrunkBranchChange: (branch: string) => void;
-  runtimeMode: RuntimeMode;
+  /** Currently selected runtime (discriminated union: SSH has host, Docker has image) */
+  selectedRuntime: ParsedRuntime;
   defaultRuntimeMode: RuntimeMode;
-  sshHost: string;
-  onRuntimeModeChange: (mode: RuntimeMode) => void;
+  /** Set the currently selected runtime (discriminated union) */
+  onSelectedRuntimeChange: (runtime: ParsedRuntime) => void;
   onSetDefaultRuntime: (mode: RuntimeMode) => void;
-  onSshHostChange: (host: string) => void;
   disabled: boolean;
   /** Project name to display as header */
   projectName: string;
   /** Workspace name/title generation state and actions */
   nameState: WorkspaceNameState;
-  /** Whether this is a non-git repository (for disabling worktree/SSH) */
-  isNonGitRepo: boolean;
+  /** Runtime availability for each mode (null while loading) */
+  runtimeAvailability: RuntimeAvailabilityMap | null;
   /** Available sections for this project */
   sections?: SectionConfig[];
   /** Currently selected section ID */
@@ -44,7 +45,7 @@ interface RuntimeButtonGroupProps {
   defaultMode: RuntimeMode;
   onSetDefault: (mode: RuntimeMode) => void;
   disabled?: boolean;
-  disabledModes?: RuntimeMode[];
+  runtimeAvailability?: RuntimeAvailabilityMap | null;
 }
 
 const RUNTIME_OPTIONS: Array<{
@@ -89,6 +90,17 @@ const RUNTIME_OPTIONS: Array<{
       "bg-[var(--color-runtime-ssh)]/20 text-[var(--color-runtime-ssh-text)] border-[var(--color-runtime-ssh)]/60",
     idleClass:
       "bg-transparent text-muted border-transparent hover:border-[var(--color-runtime-ssh)]/40",
+  },
+  {
+    value: RUNTIME_MODE.DOCKER,
+    label: "Docker",
+    description: "Run in Docker container",
+    docsPath: "/runtime/docker",
+    Icon: DockerIcon,
+    activeClass:
+      "bg-[var(--color-runtime-docker)]/20 text-[var(--color-runtime-docker-text)] border-[var(--color-runtime-docker)]/60",
+    idleClass:
+      "bg-transparent text-muted border-transparent hover:border-[var(--color-runtime-docker)]/40",
   },
 ];
 
@@ -152,14 +164,15 @@ function SectionPicker(props: SectionPickerProps) {
 }
 
 function RuntimeButtonGroup(props: RuntimeButtonGroupProps) {
-  const disabledModes = props.disabledModes ?? [];
-
   return (
-    <div className="flex gap-1">
+    <div className="flex gap-1" role="group" aria-label="Runtime type">
       {RUNTIME_OPTIONS.map((option) => {
         const isActive = props.value === option.value;
         const isDefault = props.defaultMode === option.value;
-        const isModeDisabled = disabledModes.includes(option.value);
+        const availability = props.runtimeAvailability?.[option.value];
+        const isModeDisabled = availability !== undefined && !availability.available;
+        const disabledReason =
+          availability && !availability.available ? availability.reason : undefined;
         const Icon = option.Icon;
 
         return (
@@ -191,7 +204,7 @@ function RuntimeButtonGroup(props: RuntimeButtonGroupProps) {
                 <DocsLink path={option.docsPath} />
               </div>
               {isModeDisabled ? (
-                <p className="mt-1 text-yellow-500">Requires git repository</p>
+                <p className="mt-1 text-yellow-500">{disabledReason ?? "Unavailable"}</p>
               ) : (
                 <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-xs">
                   <input
@@ -216,20 +229,28 @@ function RuntimeButtonGroup(props: RuntimeButtonGroupProps) {
  * Displays project name as header, workspace name with magic wand, and runtime/branch selectors.
  */
 export function CreationControls(props: CreationControlsProps) {
-  const { nameState, isNonGitRepo } = props;
+  const { nameState, runtimeAvailability } = props;
+
+  // Extract mode from discriminated union for convenience
+  const runtimeMode = props.selectedRuntime.mode;
 
   // Local runtime doesn't need a trunk branch selector (uses project dir as-is)
-  const showTrunkBranchSelector =
-    props.branches.length > 0 && props.runtimeMode !== RUNTIME_MODE.LOCAL;
+  const showTrunkBranchSelector = props.branches.length > 0 && runtimeMode !== RUNTIME_MODE.LOCAL;
 
-  const { runtimeMode, onRuntimeModeChange } = props;
+  const { selectedRuntime, onSelectedRuntimeChange } = props;
+
+  // Check if git is required (worktree unavailable due to git or no branches)
+  const isNonGitRepo =
+    (runtimeAvailability?.worktree?.available === false &&
+      runtimeAvailability.worktree.reason === "Requires git repository") ||
+    (props.branchesLoaded && props.branches.length === 0);
 
   // Force local runtime for non-git directories
   useEffect(() => {
-    if (isNonGitRepo && runtimeMode !== RUNTIME_MODE.LOCAL) {
-      onRuntimeModeChange(RUNTIME_MODE.LOCAL);
+    if (isNonGitRepo && selectedRuntime.mode !== RUNTIME_MODE.LOCAL) {
+      onSelectedRuntimeChange({ mode: "local" });
     }
-  }, [isNonGitRepo, runtimeMode, onRuntimeModeChange]);
+  }, [isNonGitRepo, selectedRuntime.mode, onSelectedRuntimeChange]);
 
   const handleNameChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -341,12 +362,35 @@ export function CreationControls(props: CreationControlsProps) {
         <label className="text-muted-foreground text-xs font-medium">Workspace Type</label>
         <div className="flex flex-wrap items-center gap-3">
           <RuntimeButtonGroup
-            value={props.runtimeMode}
-            onChange={props.onRuntimeModeChange}
+            value={runtimeMode}
+            onChange={(mode) => {
+              // Convert mode to ParsedRuntime with appropriate defaults
+              switch (mode) {
+                case RUNTIME_MODE.SSH:
+                  onSelectedRuntimeChange({
+                    mode: "ssh",
+                    host: selectedRuntime.mode === "ssh" ? selectedRuntime.host : "",
+                  });
+                  break;
+                case RUNTIME_MODE.DOCKER:
+                  onSelectedRuntimeChange({
+                    mode: "docker",
+                    image: selectedRuntime.mode === "docker" ? selectedRuntime.image : "",
+                  });
+                  break;
+                case RUNTIME_MODE.LOCAL:
+                  onSelectedRuntimeChange({ mode: "local" });
+                  break;
+                case RUNTIME_MODE.WORKTREE:
+                default:
+                  onSelectedRuntimeChange({ mode: "worktree" });
+                  break;
+              }
+            }}
             defaultMode={props.defaultRuntimeMode}
             onSetDefault={props.onSetDefaultRuntime}
             disabled={props.disabled}
-            disabledModes={isNonGitRepo ? [RUNTIME_MODE.WORKTREE, RUNTIME_MODE.SSH] : undefined}
+            runtimeAvailability={runtimeAvailability}
           />
 
           {/* Branch selector - shown for worktree/SSH */}
@@ -371,18 +415,64 @@ export function CreationControls(props: CreationControlsProps) {
           )}
 
           {/* SSH Host Input */}
-          {props.runtimeMode === RUNTIME_MODE.SSH && (
+          {selectedRuntime.mode === "ssh" && (
             <div className="flex items-center gap-2">
               <label className="text-muted-foreground text-xs">host</label>
               <input
                 type="text"
-                value={props.sshHost}
-                onChange={(e) => props.onSshHostChange(e.target.value)}
+                value={selectedRuntime.host}
+                onChange={(e) => onSelectedRuntimeChange({ mode: "ssh", host: e.target.value })}
                 placeholder="user@host"
                 disabled={props.disabled}
                 className="bg-bg-dark text-foreground border-border-medium focus:border-accent h-7 w-36 rounded-md border px-2 text-sm focus:outline-none disabled:opacity-50"
               />
             </div>
+          )}
+
+          {/* Docker Image Input */}
+          {selectedRuntime.mode === "docker" && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="docker-image" className="text-muted-foreground text-xs">
+                image
+              </label>
+              <input
+                id="docker-image"
+                aria-label="Docker image"
+                type="text"
+                value={selectedRuntime.image}
+                onChange={(e) =>
+                  onSelectedRuntimeChange({
+                    mode: "docker",
+                    image: e.target.value,
+                    shareCredentials: selectedRuntime.shareCredentials,
+                  })
+                }
+                placeholder="node:20"
+                disabled={props.disabled}
+                className="bg-bg-dark text-foreground border-border-medium focus:border-accent h-7 w-36 rounded-md border px-2 text-sm focus:outline-none disabled:opacity-50"
+              />
+            </div>
+          )}
+
+          {/* Docker Credential Sharing */}
+          {selectedRuntime.mode === "docker" && (
+            <label className="flex items-center gap-1.5 text-xs">
+              <input
+                type="checkbox"
+                checked={selectedRuntime.shareCredentials ?? false}
+                onChange={(e) =>
+                  onSelectedRuntimeChange({
+                    mode: "docker",
+                    image: selectedRuntime.image,
+                    shareCredentials: e.target.checked,
+                  })
+                }
+                disabled={props.disabled}
+                className="accent-accent"
+              />
+              <span className="text-muted">Share credentials (SSH, Git)</span>
+              <DocsLink path="/runtime/docker#credential-sharing" />
+            </label>
           )}
         </div>
       </div>

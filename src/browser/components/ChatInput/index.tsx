@@ -518,10 +518,39 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
   );
 
   const isSendInFlight = variant === "creation" ? creationState.isSending : isSending;
+
+  const creationControlsProps =
+    variant === "creation"
+      ? ({
+          branches: creationState.branches,
+          branchesLoaded: creationState.branchesLoaded,
+          trunkBranch: creationState.trunkBranch,
+          onTrunkBranchChange: creationState.setTrunkBranch,
+          selectedRuntime: creationState.selectedRuntime,
+          defaultRuntimeMode: creationState.defaultRuntimeMode,
+          onSelectedRuntimeChange: creationState.setSelectedRuntime,
+          onSetDefaultRuntime: creationState.setDefaultRuntimeMode,
+          disabled: isSendInFlight,
+          projectName: props.projectName,
+          nameState: creationState.nameState,
+          runtimeAvailability: creationState.runtimeAvailability,
+          sections: creationSections,
+          selectedSectionId,
+          onSectionChange: setSelectedSectionId,
+        } satisfies React.ComponentProps<typeof CreationControls>)
+      : null;
   const hasTypedText = input.trim().length > 0;
   const hasImages = imageAttachments.length > 0;
   const hasReviews = attachedReviews.length > 0;
-  const canSend = (hasTypedText || hasImages || hasReviews) && !disabled && !isSendInFlight;
+  const isDockerMissingImage =
+    variant === "creation" &&
+    creationState.selectedRuntime.mode === "docker" &&
+    !creationState.selectedRuntime.image.trim();
+  const canSend =
+    (hasTypedText || hasImages || hasReviews) &&
+    !disabled &&
+    !isSendInFlight &&
+    !isDockerMissingImage;
 
   const creationProjectPath = variant === "creation" ? props.projectPath : "";
 
@@ -1932,27 +1961,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           )}
 
           {/* Creation header controls - shown above textarea for creation variant */}
-          {variant === "creation" && (
-            <CreationControls
-              branches={creationState.branches}
-              branchesLoaded={creationState.branchesLoaded}
-              trunkBranch={creationState.trunkBranch}
-              onTrunkBranchChange={creationState.setTrunkBranch}
-              runtimeMode={creationState.runtimeMode}
-              defaultRuntimeMode={creationState.defaultRuntimeMode}
-              sshHost={creationState.sshHost}
-              onRuntimeModeChange={creationState.setRuntimeMode}
-              onSetDefaultRuntime={creationState.setDefaultRuntimeMode}
-              onSshHostChange={creationState.setSshHost}
-              disabled={isSendInFlight}
-              projectName={props.projectName}
-              nameState={creationState.nameState}
-              isNonGitRepo={creationState.branchesLoaded && creationState.branches.length === 0}
-              sections={creationSections}
-              selectedSectionId={selectedSectionId}
-              onSectionChange={setSelectedSectionId}
-            />
-          )}
+          {creationControlsProps && <CreationControls {...creationControlsProps} />}
 
           {/* File path suggestions (@src/foo.ts) */}
           <CommandSuggestions

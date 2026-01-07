@@ -363,6 +363,17 @@ export abstract class LocalBaseRuntime implements Runtime {
     return Promise.resolve(isWindows ? (process.env.TEMP ?? "C:\\Temp") : "/tmp");
   }
 
+  getMuxHome(): string {
+    return "~/.mux";
+  }
+
+  /**
+   * Local runtimes are always ready.
+   */
+  ensureReady(): Promise<{ ready: boolean; error?: string }> {
+    return Promise.resolve({ ready: true });
+  }
+
   /**
    * Helper to run .mux/init hook if it exists and is executable.
    * Shared between WorktreeRuntime and LocalRuntime.

@@ -47,7 +47,12 @@ import {
 import type { UIMode } from "@/common/types/mode";
 import type { MuxMessage } from "@/common/types/message";
 import type { RuntimeConfig } from "@/common/types/runtime";
-import { hasSrcBaseDir, getSrcBaseDir, isSSHRuntime } from "@/common/types/runtime";
+import {
+  hasSrcBaseDir,
+  getSrcBaseDir,
+  isSSHRuntime,
+  isDockerRuntime,
+} from "@/common/types/runtime";
 import { defaultModel, isValidModelFormat, normalizeGatewayModel } from "@/common/utils/ai/models";
 import type { StreamEndEvent, StreamAbortEvent } from "@/common/types/stream";
 import type { TerminalService } from "@/node/services/terminalService";
@@ -423,13 +428,15 @@ export class WorkspaceService extends EventEmitter {
       return { planPath: null, trackedFilePaths: [], excludedItems: exclusions.excludedItems };
     }
 
-    const planPath = getPlanFilePath(metadata.name, metadata.projectName);
-    // Expand tilde for comparison with absolute paths from message history
-    const expandedPlanPath = expandTilde(planPath);
-    // Also get legacy plan path (stored by workspace ID) for filtering
+    const runtime = createRuntime(metadata.runtimeConfig, { projectPath: metadata.projectPath });
+    const muxHome = runtime.getMuxHome();
+    const planPath = getPlanFilePath(metadata.name, metadata.projectName, muxHome);
+    // For local/SSH: expand tilde for comparison with message history paths
+    // For Docker: paths are already absolute (/var/mux/...), no expansion needed
+    const expandedPlanPath = muxHome.startsWith("~") ? expandTilde(planPath) : planPath;
+    // Legacy plan path (stored by workspace ID) for filtering
     const legacyPlanPath = getLegacyPlanFilePath(workspaceId);
     const expandedLegacyPlanPath = expandTilde(legacyPlanPath);
-    const runtime = createRuntime(metadata.runtimeConfig, { projectPath: metadata.projectPath });
 
     // Check both new and legacy plan paths, prefer new path
     const newPlanExists = await fileExists(runtime, planPath);
@@ -606,6 +613,7 @@ export class WorkspaceService extends EventEmitter {
       }
 
       if (!createResult!.success || !createResult!.workspacePath) {
+        initLogger.logComplete(-1);
         return Err(createResult!.error ?? "Failed to create workspace");
       }
 
@@ -642,6 +650,7 @@ export class WorkspaceService extends EventEmitter {
       const allMetadata = await this.config.getAllWorkspaceMetadata();
       const completeMetadata = allMetadata.find((m) => m.id === workspaceId);
       if (!completeMetadata) {
+        initLogger.logComplete(-1);
         return Err("Failed to retrieve workspace metadata");
       }
 
@@ -666,6 +675,7 @@ export class WorkspaceService extends EventEmitter {
 
       return Ok({ metadata: completeMetadata });
     } catch (error) {
+      initLogger.logComplete(-1);
       const message = error instanceof Error ? error.message : String(error);
       return Err(`Failed to create workspace: ${message}`);
     }
@@ -697,7 +707,7 @@ export class WorkspaceService extends EventEmitter {
 
         const runtime = createRuntime(
           metadata.runtimeConfig ?? { type: "local", srcBaseDir: this.config.srcDir },
-          { projectPath }
+          { projectPath, workspaceName: metadata.name }
         );
 
         // Delete workspace from runtime first - if this fails with force=false, we abort
@@ -903,7 +913,7 @@ export class WorkspaceService extends EventEmitter {
 
       const runtime = createRuntime(
         oldMetadata.runtimeConfig ?? { type: "local", srcBaseDir: this.config.srcDir },
-        { projectPath }
+        { projectPath, workspaceName: oldName }
       );
 
       const renameResult = await runtime.renameWorkspace(projectPath, oldName, newName);
@@ -1391,7 +1401,10 @@ export class WorkspaceService extends EventEmitter {
         type: "local",
         srcBaseDir: this.config.srcDir,
       };
-      const runtime = createRuntime(sourceRuntimeConfig);
+      const runtime = createRuntime(sourceRuntimeConfig, {
+        projectPath: foundProjectPath,
+        workspaceName: sourceMetadata.name,
+      });
 
       const newWorkspaceId = this.config.generateStableId();
 
@@ -1479,6 +1492,7 @@ export class WorkspaceService extends EventEmitter {
         } catch (cleanupError) {
           log.error(`Failed to clean up session dir ${newSessionDir}:`, cleanupError);
         }
+        initLogger.logComplete(-1);
         const message = copyError instanceof Error ? copyError.message : String(copyError);
         return Err(`Failed to copy chat history: ${message}`);
       }
@@ -2005,34 +2019,50 @@ export class WorkspaceService extends EventEmitter {
     workspaceId: string,
     metadata: FrontendWorkspaceMetadata
   ): Promise<void> {
-    // Delete both new and legacy plan paths to handle migrated workspaces
-    const planPath = getPlanFilePath(metadata.name, metadata.projectName);
+    // Create runtime to get correct muxHome (Docker uses /var/mux, others use ~/.mux)
+    const runtime = createRuntime(metadata.runtimeConfig, {
+      projectPath: metadata.projectPath,
+    });
+    const muxHome = runtime.getMuxHome();
+    const planPath = getPlanFilePath(metadata.name, metadata.projectName, muxHome);
     const legacyPlanPath = getLegacyPlanFilePath(workspaceId);
 
-    // For SSH: use $HOME expansion so remote shell resolves to remote home directory
+    const isDocker = isDockerRuntime(metadata.runtimeConfig);
+    const isSSH = isSSHRuntime(metadata.runtimeConfig);
+
+    // For Docker: paths are already absolute (/var/mux/...), just quote
+    // For SSH: use $HOME expansion so the runtime shell resolves to the runtime home directory
     // For local: expand tilde locally since shellQuote prevents shell expansion
-    const quotedPlanPath = isSSHRuntime(metadata.runtimeConfig)
-      ? expandTildeForSSH(planPath)
-      : shellQuote(expandTilde(planPath));
-    const quotedLegacyPlanPath = isSSHRuntime(metadata.runtimeConfig)
-      ? expandTildeForSSH(legacyPlanPath)
-      : shellQuote(expandTilde(legacyPlanPath));
+    const quotedPlanPath = isDocker
+      ? shellQuote(planPath)
+      : isSSH
+        ? expandTildeForSSH(planPath)
+        : shellQuote(expandTilde(planPath));
+    // For legacy path: SSH/Docker use $HOME expansion, local expands tilde
+    const quotedLegacyPlanPath =
+      isDocker || isSSH
+        ? expandTildeForSSH(legacyPlanPath)
+        : shellQuote(expandTilde(legacyPlanPath));
 
-    // SSH runtime: delete via remote shell so $HOME expands on the remote.
-    if (isSSHRuntime(metadata.runtimeConfig)) {
-      const runtime = createRuntime(metadata.runtimeConfig, {
-        projectPath: metadata.projectPath,
-      });
-
+    if (isDocker || isSSH) {
       try {
         // Use exec to delete files since runtime doesn't have a deleteFile method.
-        // Delete both paths in one command for efficiency.
+        // Use runtime workspace path (not host projectPath) for Docker containers.
+        const workspacePath = runtime.getWorkspacePath(metadata.projectPath, metadata.name);
         const execStream = await runtime.exec(`rm -f ${quotedPlanPath} ${quotedLegacyPlanPath}`, {
-          cwd: metadata.projectPath,
+          cwd: workspacePath,
           timeout: 10,
         });
-        // Wait for completion so callers can rely on the plan file actually being removed.
-        await execStream.exitCode;
+
+        try {
+          await execStream.stdin.close();
+        } catch {
+          // Ignore stdin-close errors (e.g. already closed).
+        }
+
+        await execStream.exitCode.catch(() => {
+          // Best-effort: ignore failures.
+        });
       } catch {
         // Plan files don't exist or can't be deleted - ignore
       }
@@ -2288,6 +2318,10 @@ export class WorkspaceService extends EventEmitter {
       return Err(`Workspace ${workspaceId} is being removed`);
     }
 
+    // Wait for workspace initialization (container creation, code sync, etc.)
+    // Same behavior as AI tools - 5 min timeout, then proceeds anyway
+    await this.initStateManager.waitForInit(workspaceId);
+
     try {
       // Get workspace metadata
       const metadataResult = await this.aiService.getWorkspaceMetadata(workspaceId);
@@ -2314,7 +2348,17 @@ export class WorkspaceService extends EventEmitter {
         type: "local" as const,
         srcBaseDir: this.config.srcDir,
       };
-      const runtime = createRuntime(runtimeConfig, { projectPath: metadata.projectPath });
+      const runtime = createRuntime(runtimeConfig, {
+        projectPath: metadata.projectPath,
+        workspaceName: metadata.name,
+      });
+
+      // Ensure runtime is ready (e.g., start Docker container if stopped)
+      const readyResult = await runtime.ensureReady();
+      if (!readyResult.ready) {
+        return Err(readyResult.error ?? "Runtime not ready");
+      }
+
       const workspacePath = runtime.getWorkspacePath(metadata.projectPath, metadata.name);
 
       // Create bash tool

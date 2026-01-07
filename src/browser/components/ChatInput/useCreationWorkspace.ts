@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
-import type { RuntimeConfig, RuntimeMode } from "@/common/types/runtime";
+import type { RuntimeConfig, RuntimeMode, ParsedRuntime } from "@/common/types/runtime";
+import { buildRuntimeConfig } from "@/common/types/runtime";
 import type { ThinkingLevel } from "@/common/types/thinking";
-import { parseRuntimeString } from "@/browser/utils/chatCommands";
 import { useDraftWorkspaceSettings } from "@/browser/hooks/useDraftWorkspaceSettings";
 import { readPersistedState, updatePersistedState } from "@/browser/hooks/usePersistedState";
 import { getSendOptionsFromStorage } from "@/browser/utils/messages/sendOptions";
@@ -86,15 +86,13 @@ interface UseCreationWorkspaceReturn {
   branchesLoaded: boolean;
   trunkBranch: string;
   setTrunkBranch: (branch: string) => void;
-  runtimeMode: RuntimeMode;
+  /** Currently selected runtime (discriminated union: SSH has host, Docker has image) */
+  selectedRuntime: ParsedRuntime;
   defaultRuntimeMode: RuntimeMode;
-  sshHost: string;
-  /** Set the currently selected runtime mode (does not persist) */
-  setRuntimeMode: (mode: RuntimeMode) => void;
+  /** Set the currently selected runtime (discriminated union) */
+  setSelectedRuntime: (runtime: ParsedRuntime) => void;
   /** Set the default runtime mode for this project (persists via checkbox) */
   setDefaultRuntimeMode: (mode: RuntimeMode) => void;
-  /** Set the SSH host (persisted separately from runtime mode) */
-  setSshHost: (host: string) => void;
   toast: Toast | null;
   setToast: (toast: Toast | null) => void;
   isSending: boolean;
@@ -105,7 +103,15 @@ interface UseCreationWorkspaceReturn {
   creatingWithIdentity: WorkspaceIdentity | null;
   /** Reload branches (e.g., after git init) */
   reloadBranches: () => Promise<void>;
+  /** Runtime availability for each mode (null while loading) */
+  runtimeAvailability: RuntimeAvailabilityMap | null;
 }
+
+/** Runtime availability status for each mode */
+export type RuntimeAvailabilityMap = Record<
+  RuntimeMode,
+  { available: true } | { available: false; reason: string }
+>;
 
 /**
  * Hook for managing workspace creation state and logic
@@ -130,16 +136,13 @@ export function useCreationWorkspace({
   const [isSending, setIsSending] = useState(false);
   // The confirmed identity being used for workspace creation (set after waitForGeneration resolves)
   const [creatingWithIdentity, setCreatingWithIdentity] = useState<WorkspaceIdentity | null>(null);
+  const [runtimeAvailability, setRuntimeAvailability] = useState<RuntimeAvailabilityMap | null>(
+    null
+  );
 
   // Centralized draft workspace settings with automatic persistence
-  const {
-    settings,
-    setRuntimeMode,
-    setDefaultRuntimeMode,
-    setSshHost,
-    setTrunkBranch,
-    getRuntimeString,
-  } = useDraftWorkspaceSettings(projectPath, branches, recommendedTrunk);
+  const { settings, setSelectedRuntime, setDefaultRuntimeMode, setTrunkBranch } =
+    useDraftWorkspaceSettings(projectPath, branches, recommendedTrunk);
 
   // Project scope ID for reading send options at send time
   const projectScopeId = getProjectScopeId(projectPath);
@@ -171,19 +174,30 @@ export function useCreationWorkspace({
     }
   }, [projectPath, api]);
 
-  // Load branches on mount with mounted guard
+  // Load branches and runtime availability on mount with mounted guard
   useEffect(() => {
     if (!projectPath.length || !api) return;
     let mounted = true;
     setBranchesLoaded(false);
+    setRuntimeAvailability(null);
     const doLoad = async () => {
       try {
-        const result = await api.projects.listBranches({ projectPath });
+        // Use allSettled so failures are independent - branches can load even if availability fails
+        const [branchResult, availabilityResult] = await Promise.allSettled([
+          api.projects.listBranches({ projectPath }),
+          api.projects.runtimeAvailability({ projectPath }),
+        ]);
         if (!mounted) return;
-        setBranches(result.branches);
-        setRecommendedTrunk(result.recommendedTrunk);
-      } catch (err) {
-        console.error("Failed to load branches:", err);
+        if (branchResult.status === "fulfilled") {
+          setBranches(branchResult.value.branches);
+          setRecommendedTrunk(branchResult.value.recommendedTrunk);
+        } else {
+          console.error("Failed to load branches:", branchResult.reason);
+        }
+        if (availabilityResult.status === "fulfilled") {
+          setRuntimeAvailability(availabilityResult.value);
+        }
+        // If availability fails, runtimeAvailability stays null and UI shows all runtimes enabled
       } finally {
         if (mounted) {
           setBranchesLoaded(true);
@@ -216,11 +230,32 @@ export function useCreationWorkspace({
         // Set the confirmed identity for splash UI display
         setCreatingWithIdentity(identity);
 
-        // Get runtime config from options
-        const runtimeString = getRuntimeString();
-        const runtimeConfig: RuntimeConfig | undefined = runtimeString
-          ? parseRuntimeString(runtimeString, "")
-          : undefined;
+        // Build runtime config from selected runtime (preserves all fields like shareCredentials)
+        const runtimeConfig: RuntimeConfig | undefined = buildRuntimeConfig(
+          settings.selectedRuntime
+        );
+
+        // Validate Docker image is not empty
+        if (runtimeConfig?.type === "docker" && !runtimeConfig.image?.trim()) {
+          setToast({
+            id: Date.now().toString(),
+            type: "error",
+            message: "Docker image is required",
+          });
+          setIsSending(false);
+          return false;
+        }
+
+        // Validate SSH host is not empty
+        if (runtimeConfig?.type === "ssh" && !runtimeConfig.host?.trim()) {
+          setToast({
+            id: Date.now().toString(),
+            type: "error",
+            message: "SSH host is required",
+          });
+          setIsSending(false);
+          return false;
+        }
 
         // Read send options fresh from localStorage at send time to avoid
         // race conditions with React state updates (requestAnimationFrame batching
@@ -319,7 +354,7 @@ export function useCreationWorkspace({
       projectPath,
       projectScopeId,
       onWorkspaceCreated,
-      getRuntimeString,
+      settings.selectedRuntime,
       settings.mode,
       settings.model,
       settings.thinkingLevel,
@@ -334,12 +369,10 @@ export function useCreationWorkspace({
     branchesLoaded,
     trunkBranch: settings.trunkBranch,
     setTrunkBranch,
-    runtimeMode: settings.runtimeMode,
+    selectedRuntime: settings.selectedRuntime,
     defaultRuntimeMode: settings.defaultRuntimeMode,
-    sshHost: settings.sshHost,
-    setRuntimeMode,
+    setSelectedRuntime,
     setDefaultRuntimeMode,
-    setSshHost,
     toast,
     setToast,
     isSending,
@@ -350,5 +383,7 @@ export function useCreationWorkspace({
     creatingWithIdentity,
     // Reload branches (e.g., after git init)
     reloadBranches: loadBranches,
+    // Runtime availability for each mode
+    runtimeAvailability,
   };
 }

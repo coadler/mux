@@ -43,6 +43,9 @@ import { parseRuntimeModeAndHost, RUNTIME_MODE } from "@/common/types/runtime";
 import assert from "@/common/utils/assert";
 import parseDuration from "parse-duration";
 import { log, type LogLevel } from "@/node/services/log";
+import type { InitLogger } from "@/node/runtime/Runtime";
+import { DockerRuntime } from "@/node/runtime/DockerRuntime";
+import { execSync } from "child_process";
 import { getParseOptions } from "./argv";
 
 type CLIMode = "plan" | "exec";
@@ -53,18 +56,22 @@ function parseRuntimeConfig(value: string | undefined, srcBaseDir: string): Runt
     return { type: "local" };
   }
 
-  const { mode, host } = parseRuntimeModeAndHost(value);
+  const parsed = parseRuntimeModeAndHost(value);
+  if (!parsed) {
+    throw new Error(
+      `Invalid runtime: '${value}'. Use 'local', 'worktree', 'ssh <host>', or 'docker <image>'`
+    );
+  }
 
-  switch (mode) {
+  switch (parsed.mode) {
     case RUNTIME_MODE.LOCAL:
       return { type: "local" };
     case RUNTIME_MODE.WORKTREE:
       return { type: "worktree", srcBaseDir };
     case RUNTIME_MODE.SSH:
-      if (!host.trim()) {
-        throw new Error("SSH runtime requires a host (e.g., --runtime 'ssh user@host')");
-      }
-      return { type: "ssh", host: host.trim(), srcBaseDir };
+      return { type: "ssh", host: parsed.host, srcBaseDir };
+    case RUNTIME_MODE.DOCKER:
+      return { type: "docker", image: parsed.image };
     default:
       return { type: "local" };
   }
@@ -121,6 +128,17 @@ function generateWorkspaceId(): string {
   const timestamp = Date.now();
   const random = Math.random().toString(36).substring(2, 8);
   return `run-${timestamp}-${random}`;
+}
+
+function makeCliInitLogger(writeHumanLine: (text?: string) => void): InitLogger {
+  return {
+    logStep: (msg) => writeHumanLine(`  ${msg}`),
+    logStdout: (line) => writeHumanLine(`  ${line}`),
+    logStderr: (line) => writeHumanLine(`  [stderr] ${line}`),
+    logComplete: (exitCode) => {
+      if (exitCode !== 0) writeHumanLine(`  Init completed with exit code ${exitCode}`);
+    },
+  };
 }
 
 async function ensureDirectory(dirPath: string): Promise<void> {
@@ -186,7 +204,11 @@ program
   .argument("[message]", "instruction for the agent (can also be piped via stdin)")
   .option("-d, --dir <path>", "project directory", process.cwd())
   .option("-m, --model <model>", "model to use", defaultModel)
-  .option("-r, --runtime <runtime>", "runtime type: local, worktree, or 'ssh <host>'", "local")
+  .option(
+    "-r, --runtime <runtime>",
+    "runtime type: local, worktree, 'ssh <host>', or 'docker <image>'",
+    "local"
+  )
   .option("--mode <mode>", "agent mode: plan or exec", "exec")
   .option("-t, --thinking <level>", "thinking level: off, low, medium, high", "medium")
   .option("--timeout <duration>", "timeout (e.g., 5m, 300s, 300000)")
@@ -362,9 +384,66 @@ async function main(): Promise<void> {
   // For continuing workspace, metadata should already exist
   // For new workspace, create it
   if (!continueWorkspace) {
+    let workspacePath = projectDir;
+    const projectName = path.basename(projectDir);
+
+    // For Docker runtime, create and initialize the container first
+    if (runtimeConfig.type === "docker") {
+      const runtime = new DockerRuntime(runtimeConfig);
+      // Use a sanitized branch name (CLI runs are typically one-off, no real branch needed)
+      const branchName = `cli-${workspaceId.replace(/[^a-zA-Z0-9-]/g, "-")}`;
+
+      // Detect trunk branch from repo
+      let trunkBranch = "main";
+      try {
+        const symbolic = execSync("git symbolic-ref refs/remotes/origin/HEAD", {
+          cwd: projectDir,
+          encoding: "utf-8",
+        }).trim();
+        trunkBranch = symbolic.replace("refs/remotes/origin/", "");
+      } catch {
+        // Fallback to main
+      }
+
+      const initLogger = makeCliInitLogger(writeHumanLine);
+      const createResult = await runtime.createWorkspace({
+        projectPath: projectDir,
+        branchName,
+        trunkBranch,
+        directoryName: branchName,
+        initLogger,
+      });
+      if (!createResult.success) {
+        console.error(
+          `Failed to create Docker workspace: ${createResult.error ?? "unknown error"}`
+        );
+        process.exit(1);
+      }
+
+      const initResult = await runtime.initWorkspace({
+        projectPath: projectDir,
+        branchName,
+        trunkBranch,
+        workspacePath: createResult.workspacePath!,
+        initLogger,
+      });
+      if (!initResult.success) {
+        // Clean up orphaned container
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        await runtime.deleteWorkspace(projectDir, branchName, true).catch(() => {});
+        console.error(
+          `Failed to initialize Docker workspace: ${initResult.error ?? "unknown error"}`
+        );
+        process.exit(1);
+      }
+
+      // Docker workspacePath is /src; projectName stays as original
+      workspacePath = createResult.workspacePath!;
+    }
+
     await session.ensureMetadata({
-      workspacePath: projectDir,
-      projectName: path.basename(projectDir),
+      workspacePath,
+      projectName,
       runtimeConfig,
     });
   } else {

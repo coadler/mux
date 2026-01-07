@@ -73,3 +73,27 @@ export function LocalIcon({ size = 10, className }: IconProps) {
     </svg>
   );
 }
+
+/** Container icon for Docker runtime */
+export function DockerIcon({ size = 10, className }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-label="Docker Runtime"
+      className={className}
+    >
+      {/* Shipping container / cube icon */}
+      <path d="M2 5 L8 2 L14 5 L14 11 L8 14 L2 11 Z" />
+      <path d="M8 2 L8 14" />
+      <path d="M2 5 L8 8 L14 5" />
+      <path d="M8 8 L8 14" />
+    </svg>
+  );
+}

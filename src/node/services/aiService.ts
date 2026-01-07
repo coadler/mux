@@ -1090,7 +1090,7 @@ export class AIService extends EventEmitter {
       // Get workspace path - handle both worktree and in-place modes
       const runtime = createRuntime(
         metadata.runtimeConfig ?? { type: "local", srcBaseDir: this.config.srcDir },
-        { projectPath: metadata.projectPath }
+        { projectPath: metadata.projectPath, workspaceName: metadata.name }
       );
       // In-place workspaces (CLI/benchmarks) have projectPath === name
       // Use path directly instead of reconstructing via getWorkspacePath
@@ -1208,7 +1208,8 @@ export class AIService extends EventEmitter {
       // Construct plan mode instruction if in plan mode
       // This is done backend-side because we have access to the plan file path
       let effectiveAdditionalInstructions = additionalSystemInstructions;
-      const planFilePath = getPlanFilePath(metadata.name, metadata.projectName);
+      const muxHome = runtime.getMuxHome();
+      const planFilePath = getPlanFilePath(metadata.name, metadata.projectName, muxHome);
 
       // Read plan file (handles legacy migration transparently)
       const planResult = await readPlanFile(
