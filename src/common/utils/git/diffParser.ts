@@ -52,7 +52,12 @@ function parseHunkHeader(line: string): {
  * Supports standard git diff format with file headers and hunk markers
  */
 export function parseDiff(diffOutput: string): FileDiff[] {
-  const lines = diffOutput.split("\n");
+  // Normalize line endings so CRLF diffs (and CRLF file contents) don't leak `\r` into the UI.
+  // Note: a CRLF file often produces diff lines ending in `\r\n` (the `\r` is part of the file line).
+  const lines = diffOutput.split(/\r?\n/);
+  // Intentionally keep the trailing empty line from a final newline.
+  // (When a hunk is still open, we convert it into a " " context line so the UI
+  // has a stable trailing line for selection/comment placement.)
   const files: FileDiff[] = [];
   let currentFile: FileDiff | null = null;
   let currentHunk: Partial<DiffHunk> | null = null;
@@ -154,7 +159,7 @@ export function parseDiff(diffOutput: string): FileDiff[] {
       continue;
     }
 
-    // Context lines in hunk (no prefix, but within a hunk)
+    // Context line in hunk (no prefix, but within a hunk)
     if (currentHunk && line.length === 0) {
       hunkLines.push(" "); // Treat empty line as context
       continue;
