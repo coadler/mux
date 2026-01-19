@@ -214,6 +214,12 @@ export class ServiceContainer {
     await this.taskService.initialize();
     // Start idle compaction checker
     this.idleCompactionService.start();
+
+    // Refresh Coder SSH config in background (handles binary path changes on restart)
+    // Skip getCoderInfo() to avoid caching "unavailable" if coder isn't installed yet
+    void this.coderService.ensureSSHConfig().catch(() => {
+      // Ignore errors - coder may not be installed
+    });
   }
 
   /**
