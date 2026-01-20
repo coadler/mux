@@ -545,7 +545,11 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
               hidden={!isActive}
             >
               {isActive && filePath && (
-                <FileViewerTab workspaceId={props.workspaceId} relativePath={filePath} />
+                <FileViewerTab
+                  workspaceId={props.workspaceId}
+                  relativePath={filePath}
+                  onReviewNote={props.onReviewNote}
+                />
               )}
             </div>
           );
@@ -562,6 +566,7 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
               focusTrigger={props.focusTrigger}
               isCreating={props.isCreating}
               onStatsChange={props.onReviewStatsChange}
+              onOpenFile={props.onOpenFile}
             />
           </div>
         )}

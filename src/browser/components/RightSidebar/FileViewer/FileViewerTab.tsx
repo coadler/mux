@@ -24,10 +24,12 @@ import {
   removeCachedFileContent,
   cacheToResult,
 } from "@/browser/utils/fileContentCache";
+import type { ReviewNoteData } from "@/common/types/review";
 
 interface FileViewerTabProps {
   workspaceId: string;
   relativePath: string;
+  onReviewNote?: (data: ReviewNoteData) => void;
 }
 
 interface LoadedData {
@@ -238,12 +240,14 @@ export const FileViewerTab: React.FC<FileViewerTabProps> = (props) => {
   if (data.type === "text") {
     return (
       <TextFileViewer
+        workspaceId={props.workspaceId}
         content={data.content}
         filePath={props.relativePath}
         size={data.size}
         diff={diff}
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
+        onReviewNote={props.onReviewNote}
       />
     );
   }
