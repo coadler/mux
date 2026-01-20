@@ -104,7 +104,7 @@ function AppInner() {
   }, [sidebarCollapsed]);
   const defaultProjectPath = getFirstProjectPath(projects);
   const creationProjectPath = !selectedWorkspace
-    ? (pendingNewWorkspaceProject ?? (projects.size === 1 ? defaultProjectPath : null))
+    ? (pendingNewWorkspaceProject ?? defaultProjectPath)
     : null;
 
   const startWorkspaceCreation = useStartWorkspaceCreation({
@@ -758,7 +758,7 @@ function AppInner() {
                   <h2 style={{ fontSize: "clamp(24px, 5vw, 36px)", letterSpacing: "-1px" }}>
                     Welcome to Mux
                   </h2>
-                  <p>Select a workspace from the sidebar or add a new one to get started.</p>
+                  <p>Add a project from the sidebar to get started.</p>
                 </div>
               </div>
             )}
