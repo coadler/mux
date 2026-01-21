@@ -14,6 +14,7 @@ import type {
   UsageDeltaEvent,
   StreamEndEvent,
   StreamAbortEvent,
+  StreamAbortReasonSnapshot,
   ToolCallStartEvent,
   ToolCallDeltaEvent,
   ToolCallEndEvent,
@@ -231,6 +232,9 @@ export class StreamingMessageAggregator {
   // IMPORTANT: We intentionally keep this timestamp until a stream actually starts
   // (or the user retries) so retry UI/backoff logic doesn't misfire on send failures.
   private pendingStreamStartTime: number | null = null;
+
+  // Last observed stream-abort reason (used to gate auto-retry).
+  private lastAbortReason: StreamAbortReasonSnapshot | null = null;
 
   // Current runtime status (set during ensureReady for Coder workspaces)
   // Used to show "Starting Coder workspace..." in StreamingBarrier
@@ -717,6 +721,13 @@ export class StreamingMessageAggregator {
     return this.messages.size > 0;
   }
 
+  clearLastAbortReason(): void {
+    this.lastAbortReason = null;
+  }
+  getLastAbortReason(): StreamAbortReasonSnapshot | null {
+    return this.lastAbortReason;
+  }
+
   getPendingStreamStartTime(): number | null {
     return this.pendingStreamStartTime;
   }
@@ -1022,6 +1033,7 @@ export class StreamingMessageAggregator {
     this.displayedMessageCache.clear();
     this.messageVersions.clear();
     this.interruptingMessageId = null;
+    this.lastAbortReason = null;
     this.invalidateCache();
   }
 
@@ -1075,6 +1087,7 @@ export class StreamingMessageAggregator {
 
     // Clear pending stream start timestamp - stream has started
     this.setPendingStreamStartTime(null);
+    this.lastAbortReason = null;
 
     // Clear runtime status - runtime is ready now that stream has started
     this.runtimeStatus = null;
@@ -1216,6 +1229,10 @@ export class StreamingMessageAggregator {
     // Clear pending stream start timestamp - abort can arrive before stream-start.
     // This ensures StreamingBarrier exits the "starting..." phase immediately.
     this.setPendingStreamStartTime(null);
+    this.lastAbortReason = {
+      reason: data.abortReason ?? "system",
+      at: Date.now(),
+    };
 
     // Clear "interrupting" state - stream is now fully "interrupted"
     if (this.interruptingMessageId === data.messageId) {
@@ -1687,6 +1704,7 @@ export class StreamingMessageAggregator {
           this.clearPersistedAgentStatus();
         }
 
+        this.lastAbortReason = null;
         this.setPendingStreamStartTime(Date.now());
       }
     }

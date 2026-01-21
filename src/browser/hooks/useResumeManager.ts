@@ -5,7 +5,7 @@ import { getAutoRetryKey, getRetryStateKey } from "@/common/constants/storage";
 import { getSendOptionsFromStorage } from "@/browser/utils/messages/sendOptions";
 import { readPersistedState, updatePersistedState } from "./usePersistedState";
 import {
-  isEligibleForAutoRetry,
+  getInterruptionContext,
   isNonRetryableSendError,
 } from "@/browser/utils/messages/retryEligibility";
 import { applyCompactionOverrides } from "@/browser/utils/messages/compactionOptions";
@@ -105,9 +105,13 @@ export function useResumeManager() {
     // 1. Must have interrupted stream that's eligible for auto-retry (not currently streaming)
     if (state.canInterrupt) return false; // Currently streaming
 
-    if (
-      !isEligibleForAutoRetry(state.messages, state.pendingStreamStartTime, state.runtimeStatus)
-    ) {
+    const { isEligibleForAutoRetry } = getInterruptionContext(
+      state.messages,
+      state.pendingStreamStartTime,
+      state.runtimeStatus,
+      state.lastAbortReason
+    );
+    if (!isEligibleForAutoRetry) {
       return false;
     }
 
@@ -148,6 +152,10 @@ export function useResumeManager() {
    * @param isManual - If true, bypass eligibility checks (user explicitly clicked retry)
    */
   const attemptResume = async (workspaceId: string, isManual = false) => {
+    if (isManual) {
+      store.clearLastAbortReason(workspaceId);
+    }
+
     // Skip eligibility checks for manual retries (user explicitly wants to retry)
     if (!isManual && !isEligibleForResume(workspaceId)) return;
 
