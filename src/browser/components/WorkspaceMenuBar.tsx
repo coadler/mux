@@ -38,6 +38,7 @@ import {
 import { DebugLlmRequestModal } from "./DebugLlmRequestModal";
 import { WorkspaceLinks } from "./WorkspaceLinks";
 import { ShareTranscriptDialog } from "./ShareTranscriptDialog";
+import { ChangeSSHHostDialog } from "./ChangeSSHHostDialog";
 import { ConfirmationModal } from "./ConfirmationModal";
 import { PopoverError } from "./PopoverError";
 import { WorkspaceActionsMenuContent } from "./WorkspaceActionsMenuContent";
@@ -95,6 +96,7 @@ export const WorkspaceMenuBar: React.FC<WorkspaceMenuBarProps> = ({
   const [invalidSkills, setInvalidSkills] = useState<AgentSkillIssue[]>([]);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [shareTranscriptOpen, setShareTranscriptOpen] = useState(false);
+  const [sshHostDialogOpen, setSshHostDialogOpen] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
   const archiveError = usePopoverError();
@@ -523,6 +525,11 @@ export const WorkspaceMenuBar: React.FC<WorkspaceMenuBarProps> = ({
           >
             {/* Keep MCP configuration in the more actions menu to keep the workspace menu bar lean. */}
             <WorkspaceActionsMenuContent
+              onChangeSSHHost={
+                runtimeConfig?.type === "ssh"
+                  ? () => setSshHostDialogOpen(true)
+                  : null
+              }
               onConfigureMcp={() => setMcpModalOpen(true)}
               onForkChat={(anchorEl) => {
                 void handleForkChat(anchorEl);
@@ -563,6 +570,14 @@ export const WorkspaceMenuBar: React.FC<WorkspaceMenuBarProps> = ({
           workspaceTitle={workspaceTitle}
           open={shareTranscriptOpen}
           onOpenChange={setShareTranscriptOpen}
+        />
+      )}
+      {runtimeConfig?.type === "ssh" && (
+        <ChangeSSHHostDialog
+          open={sshHostDialogOpen}
+          onOpenChange={setSshHostDialogOpen}
+          workspaceId={workspaceId}
+          currentRuntimeConfig={runtimeConfig}
         />
       )}
       {/* Confirm archives that would interrupt an active stream. */}

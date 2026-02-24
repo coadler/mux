@@ -24,6 +24,7 @@ import { WORKSPACE_DRAG_TYPE, type WorkspaceDragItem } from "./WorkspaceSectionD
 import { useLinkSharingEnabled } from "@/browser/contexts/TelemetryEnabledContext";
 import { formatKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
 import { ShareTranscriptDialog } from "./ShareTranscriptDialog";
+import { ChangeSSHHostDialog } from "./ChangeSSHHostDialog";
 import { WorkspaceActionsMenuContent } from "./WorkspaceActionsMenuContent";
 import { useAPI } from "@/browser/contexts/API";
 
@@ -289,6 +290,7 @@ function RegularWorkspaceListItemInner(props: WorkspaceListItemProps) {
 
   const linkSharingEnabled = useLinkSharingEnabled();
   const [shareTranscriptOpen, setShareTranscriptOpen] = useState(false);
+  const [sshHostDialogOpen, setSshHostDialogOpen] = useState(false);
   const [isOverflowMenuPlaced, setIsOverflowMenuPlaced] = useState(false);
 
   // Context menu via right-click / long-press. The hook manages position + long-press state.
@@ -561,6 +563,11 @@ function RegularWorkspaceListItemInner(props: WorkspaceListItemProps) {
                 >
                   <WorkspaceActionsMenuContent
                     onEditTitle={startEditing}
+                    onChangeSSHHost={
+                      metadata.runtimeConfig?.type === "ssh"
+                        ? () => setSshHostDialogOpen(true)
+                        : null
+                    }
                     onForkChat={(anchorEl) => {
                       void onForkWorkspace(workspaceId, anchorEl);
                     }}
@@ -601,6 +608,14 @@ function RegularWorkspaceListItemInner(props: WorkspaceListItemProps) {
                   workspaceTitle={displayTitle}
                   open={shareTranscriptOpen}
                   onOpenChange={setShareTranscriptOpen}
+                />
+              )}
+              {metadata.runtimeConfig?.type === "ssh" && (
+                <ChangeSSHHostDialog
+                  open={sshHostDialogOpen}
+                  onOpenChange={setSshHostDialogOpen}
+                  workspaceId={workspaceId}
+                  currentRuntimeConfig={metadata.runtimeConfig}
                 />
               )}
             </ActionButtonWrapper>
