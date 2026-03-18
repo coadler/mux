@@ -672,9 +672,12 @@ export function CreationControls(props: CreationControlsProps) {
 
     switch (firstEnabled) {
       case RUNTIME_MODE.SSH: {
+        // Detect host-SSH (not Coder) so we can reuse in-memory forwardAgent;
+        // Coder workspaces may have concrete hostnames, so also check .coder.
         const isNonCoderSsh =
           selectedRuntime.mode === RUNTIME_MODE.SSH &&
-          selectedRuntime.host !== CODER_RUNTIME_PLACEHOLDER;
+          selectedRuntime.host !== CODER_RUNTIME_PLACEHOLDER &&
+          !selectedRuntime.coder;
         const sshHost = isNonCoderSsh ? selectedRuntime.host : props.sshHostFallback;
         // Use in-memory forwardAgent only when already in host-SSH mode;
         // otherwise fall back to the persisted value so Coder→SSH switches don't drop it.
@@ -910,9 +913,12 @@ export function CreationControls(props: CreationControlsProps) {
               // Convert mode to ParsedRuntime with appropriate defaults
               switch (mode) {
                 case RUNTIME_MODE.SSH: {
+                  // Detect host-SSH (not Coder) so we can reuse in-memory forwardAgent;
+                  // Coder workspaces may have concrete hostnames, so also check .coder.
                   const isNonCoderSsh =
                     selectedRuntime.mode === "ssh" &&
-                    selectedRuntime.host !== CODER_RUNTIME_PLACEHOLDER;
+                    selectedRuntime.host !== CODER_RUNTIME_PLACEHOLDER &&
+                    !selectedRuntime.coder;
                   const sshHost = isNonCoderSsh ? selectedRuntime.host : props.sshHostFallback;
                   // Use in-memory forwardAgent only when already in host-SSH mode;
                   // otherwise fall back to the persisted value so Coder→SSH switches don't drop it.
